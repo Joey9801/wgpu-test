@@ -1,0 +1,15 @@
+[package]
+name = "wgpu-test"
+version = "0.1.0"
+authors = ["Joe Roberts <josephroberts11@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+winit = "0.22"
+wgpu = "0.5"
+bytemuck = "1.0"
+cgmath = "0.17"
+shaderc = "0.6"
+tokio = { version = "0.2", features = ["macros", "fs"] }
