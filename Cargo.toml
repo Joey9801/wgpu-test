@@ -13,3 +13,8 @@ bytemuck = "1.0"
 cgmath = "0.17"
 shaderc = "0.6"
 tokio = { version = "0.2", features = ["macros", "fs"] }
+gltf = "0.15"
+
+
+[dev-dependencies]
+approx = "0.3"
