@@ -3,9 +3,10 @@
 extern crate cgmath;
 
 use winit::{
+    dpi::PhysicalSize,
     event::{self, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Fullscreen, WindowBuilder},
+    window::WindowBuilder,
 };
 
 mod app;
@@ -25,12 +26,10 @@ use vertex::Vertex;
 #[tokio::main]
 async fn main() {
     let event_loop = EventLoop::new();
-    let primary_monitor = event_loop.primary_monitor();
     let window = WindowBuilder::new()
         .with_resizable(false)
-        .with_inner_size(primary_monitor.size())
-        .with_fullscreen(Some(Fullscreen::Borderless(primary_monitor)))
-        // .with_inner_size(winit::dpi::LogicalSize {width: 2560, height: 1440 })
+        .with_inner_size(PhysicalSize { height: 600, width: 800 })
+        .with_title("wgpu-test")
         .build(&event_loop)
         .unwrap();
 
