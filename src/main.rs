@@ -77,32 +77,14 @@ async fn main() {
                 | WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
                 }
-                WindowEvent::CursorMoved { position , .. } if position == window_center => {
-                    // Ignore the spurious events caused by manually moving the cursor back to the screen center.
-                }
-                WindowEvent::CursorMoved { position , .. } => {
-                    let delta = [
-                        (position.x - window_center.x) as f32 / window_size.height as f32,
-                        (position.y - window_center.y) as f32 / window_size.height as f32,
-                    ];
-                    app.handle_mouse_delta(delta);
-                    window.set_cursor_position(window_center)
-                        .expect("Failed to reset cursor back to window center");
-                }
                 _ => (),
-            },
-            Event::DeviceEvent { event: event::DeviceEvent::Key( event::KeyboardInput {
-                virtual_keycode: Some(key),
-                state,
-                ..
-            }), .. } => {
-                app.handle_key_event(key, state);
             },
             event::Event::RedrawRequested(_) => {
                 let frame_packet = app.generate_frame_packet(renderer.aspect_ratio());
                 renderer.draw_frame(&frame_packet);
             }
-            _ => {}
+            _ => app.handle_event(&event)
         }
+
     });
 }

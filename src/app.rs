@@ -1,13 +1,14 @@
 use std::time::Duration;
 
 use cgmath::{Rad, Quaternion, Vector3, Point3, InnerSpace, Angle, Matrix4, SquareMatrix, Deg};
+use winit::event::Event;
 
 use crate::camera::Camera;
 use crate::renderer::{
     ModelId,
     frame_packet::{FramePacket, FramePacketModel, InstanceData}
 };
-use winit::event::{ElementState, VirtualKeyCode};
+use crate::input_manager::{InputManager, LogicalEvent, LogicalKey, KeyState};
 
 
 struct AppObject {
@@ -49,6 +50,7 @@ impl AppObject {
 }
 
 pub struct App {
+    input_manager: InputManager,
     main_camera: Camera,
 
     /// Camera velocity relative to the camera
@@ -64,6 +66,7 @@ pub struct App {
 impl App {
     pub fn new(model: ModelId) -> Self {
         Self {
+            input_manager: InputManager::new(),
             main_camera: Camera {
                 location: [2.0, 2.0, 0.0].into(),
                 direction: Vector3::new(-1.0, -1.0, 0.0), //.normalize(),
@@ -79,37 +82,47 @@ impl App {
         }
     }
 
-    pub fn handle_mouse_delta(&mut self, delta: [f32; 2]) {
-        self.main_camera.pan_horizonal(Rad(delta[0]));
-
-        // A negative vertical delta is the mouse moving toward the top of the screen.
-        // Invert it so that the mouse moving up causes a pan upwards.
-        self.main_camera.pan_vertical(Rad(-delta[1]));
+    pub fn handle_event(&mut self, event: &winit::event::Event<()>) {
+        self.input_manager.update(event);
+        while let Some(logical_event) = self.input_manager.poll_logical_event() {
+            self.handle_logical_event(logical_event);
+        }
     }
 
-    pub fn handle_key_event(&mut self, key: VirtualKeyCode, new_state: ElementState) {
+    fn handle_logical_event(&mut self, event: LogicalEvent) {
+        match event {
+            LogicalEvent::MouseMovement { x, y } => {
+                const MOUSE_SCALING: f32 = 1.0 / 1024.0;
+                self.main_camera.pan_horizonal(Rad(x * MOUSE_SCALING));
+
+                // A negative vertical delta is the mouse moving toward the top of the screen.
+                // Invert it so that the mouse moving upwards is a positive vertical pan (looking
+                // more up)
+                self.main_camera.pan_vertical(Rad(-y * MOUSE_SCALING));
+            }
+            LogicalEvent::Key { logical_key, new_state } => {
+                self.handle_key_event(logical_key, new_state);
+            }
+        }
+    }
+
+    fn handle_key_event(&mut self, key: LogicalKey, new_state: KeyState) {
         let multiplier: f32 = match new_state {
-            ElementState::Pressed => 10.0,
-            ElementState::Released => -10.0,
+            KeyState::Down => 10.0,
+            KeyState::Up => -10.0,
         };
 
         let base_vel: Vector3<f32> = match key {
-            VirtualKeyCode::W => [0.0, 1.0, 0.0],
-            VirtualKeyCode::A => [-1.0, 0.0, 0.0],
-            VirtualKeyCode::S => [0.0, -1.0, 0.0],
-            VirtualKeyCode::D => [1.0, 0.0, 0.0],
-            VirtualKeyCode::Space => [0.0, 0.0, 1.0],
-            VirtualKeyCode::C => [0.0, 0.0, -1.0],
+            LogicalKey::MoveForward => [0.0, 1.0, 0.0],
+            LogicalKey::StrafeLeft => [-1.0, 0.0, 0.0],
+            LogicalKey::MoveBackward => [0.0, -1.0, 0.0],
+            LogicalKey::StrafeRight => [1.0, 0.0, 0.0],
+            LogicalKey::MoveUp => [0.0, 0.0, 1.0],
+            LogicalKey::MoveDown => [0.0, 0.0, -1.0],
             _ => [0.0, 0.0, 0.0],
         }.into();
 
         self.camera_velocity += multiplier * base_vel;
-
-        match key {
-            VirtualKeyCode::Add => self.main_camera.vertical_fov += Deg(5.0).into(),
-            VirtualKeyCode::Subtract => self.main_camera.vertical_fov -= Deg(5.0).into(),
-            _ => (),
-        }
     }
 
     // Generates the world space camera velocity from the camera space first person velocity.

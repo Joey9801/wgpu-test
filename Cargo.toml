@@ -14,6 +14,7 @@ cgmath = "0.17"
 shaderc = "0.6"
 tokio = { version = "0.2", features = ["macros", "fs"] }
 gltf = "0.15"
+scancode = "0.1"
 
 
 [dev-dependencies]
