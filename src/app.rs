@@ -1,15 +1,13 @@
 use std::time::Duration;
 
-use cgmath::{Rad, Quaternion, Vector3, Point3, InnerSpace, Angle, Matrix4, SquareMatrix, Deg};
-use winit::event::Event;
+use cgmath::{Angle, Deg, InnerSpace, Matrix4, Point3, Quaternion, Rad, SquareMatrix, Vector3};
 
 use crate::camera::Camera;
+use crate::input_manager::{InputManager, KeyState, LogicalEvent, LogicalKey};
 use crate::renderer::{
+    frame_packet::{FramePacket, FramePacketModel, InstanceData},
     ModelId,
-    frame_packet::{FramePacket, FramePacketModel, InstanceData}
 };
-use crate::input_manager::{InputManager, LogicalEvent, LogicalKey, KeyState};
-
 
 struct AppObject {
     model: ModelId,
@@ -28,10 +26,6 @@ impl AppObject {
         self.angle = (rotation * self.angle).normalize();
     }
 
-    fn translate(&mut self, translation: Vector3<f32>) {
-        self.pos += translation;
-    }
-
     /// Generates a matrix that transforms this objects model space into world space
     fn model_matrix(&self) -> Matrix4<f32> {
         Matrix4::from_translation(Vector3::new(self.pos.x, self.pos.y, self.pos.z))
@@ -43,7 +37,9 @@ impl AppObject {
     /// space
     fn normal_matrix(&self, view: Matrix4<f32>) -> Matrix4<f32> {
         let model_view = view * self.model_matrix();
-        let mut normal = model_view.invert().expect("Model-View matrix had a zero determinant");
+        let mut normal = model_view
+            .invert()
+            .expect("Model-View matrix had a zero determinant");
         normal.transpose_self();
         normal
     }
@@ -69,7 +65,7 @@ impl App {
             input_manager: InputManager::new(),
             main_camera: Camera {
                 location: [2.0, 2.0, 0.0].into(),
-                direction: Vector3::new(-1.0, -1.0, 0.0), //.normalize(),
+                direction: Vector3::new(-1.0, -1.0, 0.0).normalize(),
                 ..Camera::default()
             },
             camera_velocity: [0.0, 0.0, 0.0].into(),
@@ -100,7 +96,10 @@ impl App {
                 // more up)
                 self.main_camera.pan_vertical(Rad(-y * MOUSE_SCALING));
             }
-            LogicalEvent::Key { logical_key, new_state } => {
+            LogicalEvent::Key {
+                logical_key,
+                new_state,
+            } => {
                 self.handle_key_event(logical_key, new_state);
             }
         }
@@ -119,19 +118,23 @@ impl App {
             LogicalKey::StrafeRight => [1.0, 0.0, 0.0],
             LogicalKey::MoveUp => [0.0, 0.0, 1.0],
             LogicalKey::MoveDown => [0.0, 0.0, -1.0],
-            _ => [0.0, 0.0, 0.0],
-        }.into();
+        }
+        .into();
 
         self.camera_velocity += multiplier * base_vel;
     }
 
     // Generates the world space camera velocity from the camera space first person velocity.
     fn world_camera_vel(&self) -> Vector3<f32> {
-            let strafe_dir = self.main_camera.direction.cross([0.0, 0.0, 1.0].into()).normalize();
-            let strafe: Vector3<f32> = strafe_dir * self.camera_velocity.x;
-            let forward: Vector3<f32> = self.camera_velocity.y * self.main_camera.direction;
-            let up: Vector3<f32> = self.camera_velocity.z * Vector3::new(0.0, 0.0, 1.0);
-            strafe + forward + up
+        let strafe_dir = self
+            .main_camera
+            .direction
+            .cross([0.0, 0.0, 1.0].into())
+            .normalize();
+        let strafe: Vector3<f32> = strafe_dir * self.camera_velocity.x;
+        let forward: Vector3<f32> = self.camera_velocity.y * self.main_camera.direction;
+        let up: Vector3<f32> = self.camera_velocity.z * Vector3::new(0.0, 0.0, 1.0);
+        strafe + forward + up
     }
 
     /// Allow the given amount of time to pass
@@ -148,17 +151,13 @@ impl App {
         FramePacket {
             view,
             proj,
-            models: vec![
-                FramePacketModel {
-                    model_id: self.object.model,
-                    instances: vec![
-                        InstanceData {
-                            model_matrix: self.object.model_matrix(),
-                            normal_matrix: self.object.normal_matrix(view),
-                        }
-                    ]
-                }
-            ],
+            models: vec![FramePacketModel {
+                model_id: self.object.model,
+                instances: vec![InstanceData {
+                    model_matrix: self.object.model_matrix(),
+                    normal_matrix: self.object.normal_matrix(view),
+                }],
+            }],
         }
     }
 }

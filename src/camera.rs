@@ -1,11 +1,11 @@
-use cgmath::{InnerSpace, Point3, Matrix4, Vector3, Deg, Rad, Matrix3};
+use cgmath::{Deg, InnerSpace, Matrix3, Matrix4, Point3, Rad, Vector3};
 
 pub struct Camera {
     /// Position of this camera in world coordinates
     pub location: Point3<f32>,
 
     /// A unit vector in the direction this camera is facing
-    pub direction: Vector3<f32>,    
+    pub direction: Vector3<f32>,
 
     /// Near clipping plane for the perspective projection
     pub near_clip: f32,
@@ -31,16 +31,12 @@ impl Default for Camera {
 impl Camera {
     /// Generate a matrix that transforms world space into this camera's view space
     pub fn view(&self) -> Matrix4<f32> {
-        Matrix4::look_at_dir(
-            self.location,
-            self.direction,
-            [0.0, 0.0, 1.0].into(),
-        )
+        Matrix4::look_at_dir(self.location, self.direction, [0.0, 0.0, 1.0].into())
     }
 
     /// Generate a matrix that transforms view space into Vulkan screenspace coordinates
     pub fn proj(&self, aspect_ratio: f32) -> Matrix4<f32> {
-        // OPENGL_SCREENSPACE_TO_VULKAN * 
+        // OPENGL_SCREENSPACE_TO_VULKAN *
         cgmath::perspective(
             self.vertical_fov,
             aspect_ratio,
@@ -66,14 +62,15 @@ impl Camera {
         // Rad(pi/2) => straight up
         // Rad(0) => horizontal
         // Rad(-pi/2) => straight down
-        let current_angle: Rad<f32> = Rad(std::f32::consts::FRAC_PI_2 - self.direction.dot([0.0, 0.0, 1.0].into()).acos());
+        let current_angle: Rad<f32> =
+            Rad(std::f32::consts::FRAC_PI_2 - self.direction.dot([0.0, 0.0, 1.0].into()).acos());
 
         // Bounds for the pan angle that prevent the camera going past straight up/down. Include a
         // small amount of buffer room so that the camera is never quite pointing straight up/down,
         // so that the cross product of the camera direction and the vertical is allways well
         // defined.
-        let max_pan: Rad<f32> = Rad(std::f32::consts::FRAC_PI_2) - current_angle - Rad(0.1);
-        let min_pan: Rad<f32> = Rad(-std::f32::consts::FRAC_PI_2) - current_angle + Rad(0.1);
+        let max_pan: Rad<f32> = Rad(std::f32::consts::FRAC_PI_2) - current_angle - Rad(0.01);
+        let min_pan: Rad<f32> = Rad(-std::f32::consts::FRAC_PI_2) - current_angle + Rad(0.01);
 
         let pan_angle = pan_angle.into();
         let pan_angle = if pan_angle > max_pan {
@@ -96,13 +93,13 @@ mod tests {
     #[test]
     fn test_camera_pan_horizontal() {
         let mut camera = Camera::default();
-        
+
         camera.direction = Vector3::new(1.0, 0.0, 0.0);
         camera.pan_horizonal(Deg(-90.0));
         assert_ulps_eq!(camera.direction.x, 0.0);
         assert_ulps_eq!(camera.direction.y, 1.0);
         assert_ulps_eq!(camera.direction.z, 0.0);
-        
+
         camera.direction = Vector3::new(1.0, 0.0, 0.0);
         camera.pan_horizonal(Deg(90.0));
         assert_ulps_eq!(camera.direction.x, 0.0);
@@ -116,18 +113,32 @@ mod tests {
 
         camera.direction = Vector3::new(1.0, 0.0, 0.0);
         camera.pan_vertical(Deg(45.0));
-        assert_ulps_eq!(camera.direction.y, 0.0);
-        assert_ulps_eq!(camera.direction.x, (0.5f32).sqrt());
-        assert_ulps_eq!(camera.direction.z, (0.5f32).sqrt());
-        
+        assert_ulps_eq!(camera.direction.magnitude(), 1.0);
+        // This one should be pretty exact
+        assert_ulps_eq!(
+            camera.direction,
+            [(0.5f32).sqrt(), 0.0, (0.5f32).sqrt()].into()
+        );
+
         camera.pan_vertical(Deg(90.0));
-        assert_ulps_eq!(camera.direction.x, 0.0);
-        assert_ulps_eq!(camera.direction.y, 0.0);
-        assert_ulps_eq!(camera.direction.z, 1.0);
+        assert_ulps_eq!(camera.direction.magnitude(), 1.0);
+        // Relatively large epsilon from here on to account for the fudge factor preventing looking straight up
+        assert_relative_eq!(camera.direction, [0.0, 0.0, 1.0].into(), epsilon = 0.01);
 
         camera.pan_vertical(Deg(-90.0));
-        assert_ulps_eq!(camera.direction.x, 0.0);
-        assert_ulps_eq!(camera.direction.y, 1.0);
-        assert_ulps_eq!(camera.direction.z, 0.0);
+        assert_ulps_eq!(camera.direction.magnitude(), 1.0);
+        assert_relative_eq!(camera.direction, [1.0, 0.0, 0.0].into(), epsilon = 0.01);
+
+        camera.pan_vertical(Deg(-45.0));
+        assert_ulps_eq!(camera.direction.magnitude(), 1.0);
+        assert_relative_eq!(
+            camera.direction,
+            [(0.5f32).sqrt(), 0.0, -(0.5f32).sqrt()].into(),
+            epsilon = 0.01
+        );
+
+        camera.pan_vertical(Deg(-90.0));
+        assert_ulps_eq!(camera.direction.magnitude(), 1.0);
+        assert_relative_eq!(camera.direction, [0.0, 0.0, -1.0].into(), epsilon = 0.01);
     }
 }

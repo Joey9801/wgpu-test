@@ -36,6 +36,7 @@ impl GpuModel {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModelId(usize);
 
+#[allow(unused)]
 pub struct Renderer {
     size: winit::dpi::PhysicalSize<u32>,
     surface: wgpu::Surface,
@@ -145,15 +146,20 @@ impl Renderer {
                 label: Some("Per frame encoder"),
             });
 
-        self.render_stage.draw_frame(self, frame_packet, &mut encoder, &frame.view, &self.depth_texture.create_default_view());
+        self.render_stage.draw_frame(
+            self,
+            frame_packet,
+            &mut encoder,
+            &frame.view,
+            &self.depth_texture.create_default_view(),
+        );
 
-        self.queue.submit(&[
-            encoder.finish(),
-        ]);
+        self.queue.submit(&[encoder.finish()]);
     }
 }
 
 #[derive(Clone, Copy)]
+#[allow(unused)]
 struct UniformData {
     view: cgmath::Matrix4<f32>,
     proj: cgmath::Matrix4<f32>,
@@ -163,9 +169,6 @@ unsafe impl bytemuck::Pod for UniformData {}
 unsafe impl bytemuck::Zeroable for UniformData {}
 
 struct RenderStage {
-    vs_module: wgpu::ShaderModule,
-    fs_module: wgpu::ShaderModule,
-    uniform_bind_group_layout: wgpu::BindGroupLayout,
     uniform_bind_group: wgpu::BindGroup,
     uniform_buff: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
@@ -175,10 +178,16 @@ impl RenderStage {
     pub async fn new(device: &wgpu::Device) -> Self {
         let mut shader_cache = ShaderCache::new();
         let vs_spirv = shader_cache
-            .get_shader("./src/renderer/shaders/shader.vert", shaderc::ShaderKind::Vertex)
+            .get_shader(
+                "./src/renderer/shaders/shader.vert",
+                shaderc::ShaderKind::Vertex,
+            )
             .await;
         let fs_spirv = shader_cache
-            .get_shader("./src/renderer/shaders/shader.frag", shaderc::ShaderKind::Fragment)
+            .get_shader(
+                "./src/renderer/shaders/shader.frag",
+                shaderc::ShaderKind::Fragment,
+            )
             .await;
 
         let vs_module = device.create_shader_module(&vs_spirv);
@@ -263,16 +272,20 @@ impl RenderStage {
         });
 
         Self {
-            vs_module,
-            fs_module,
             uniform_buff,
-            uniform_bind_group_layout,
             uniform_bind_group,
             pipeline,
         }
     }
 
-    pub fn draw_frame(&self, renderer: &Renderer, frame_packet: &FramePacket, encoder: &mut wgpu::CommandEncoder, color_output: &wgpu::TextureView, depth_output: &wgpu::TextureView) {
+    pub fn draw_frame(
+        &self,
+        renderer: &Renderer,
+        frame_packet: &FramePacket,
+        encoder: &mut wgpu::CommandEncoder,
+        color_output: &wgpu::TextureView,
+        depth_output: &wgpu::TextureView,
+    ) {
         let uniform_staging = renderer.device.create_buffer_with_data(
             bytemuck::cast_slice(&[UniformData {
                 view: frame_packet.view,
@@ -290,9 +303,11 @@ impl RenderStage {
         );
 
         for model in &frame_packet.models {
-            let model_data = renderer.models.get(&model.model_id)
+            let model_data = renderer
+                .models
+                .get(&model.model_id)
                 .expect("Frame packet references model with unknown id");
-                
+
             let instance_data_buff = renderer.device.create_buffer_with_data(
                 bytemuck::cast_slice(&model.instances[..]),
                 wgpu::BufferUsage::VERTEX,
@@ -323,7 +338,11 @@ impl RenderStage {
             rpass.set_vertex_buffer(0, &model_data.vertex_buff, 0, 0);
             rpass.set_vertex_buffer(1, &instance_data_buff, 0, 0);
             rpass.set_index_buffer(&model_data.index_buff, 0, 0);
-            rpass.draw_indexed(0..model_data.index_count, 0, 0..model.instances.len() as u32);
+            rpass.draw_indexed(
+                0..model_data.index_count,
+                0,
+                0..model.instances.len() as u32,
+            );
         }
     }
 }

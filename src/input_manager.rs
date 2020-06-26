@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
-use winit::event::{Event, DeviceEvent, KeyboardInput, ElementState};
 use scancode::Scancode;
+use winit::event::{DeviceEvent, ElementState, Event, KeyboardInput};
 
 pub enum LogicalKey {
     MoveForward,
@@ -39,17 +39,13 @@ pub enum KeyState {
     Down,
 }
 
-
 pub enum LogicalEvent {
     Key {
         new_state: KeyState,
         logical_key: LogicalKey,
     },
     /// Represents a relative movement of the mouse in pixels, where X is right and Y is down.
-    MouseMovement {
-        x: f32,
-        y: f32,
-    },
+    MouseMovement { x: f32, y: f32 },
 }
 
 pub struct InputManager {
@@ -66,10 +62,8 @@ impl InputManager {
         }
     }
 
-    fn handle_keyboard_input(&mut self, ki: &KeyboardInput)  {
-        let tracked_state = self.key_states
-            .entry(ki.scancode)
-            .or_insert(KeyState::Up);
+    fn handle_keyboard_input(&mut self, ki: &KeyboardInput) {
+        let tracked_state = self.key_states.entry(ki.scancode).or_insert(KeyState::Up);
 
         let new_state = match ki.state {
             ElementState::Pressed => KeyState::Down,
@@ -79,7 +73,7 @@ impl InputManager {
         if *tracked_state == new_state {
             return;
         }
-        
+
         *tracked_state = new_state;
         if let Some(logical_key) = LogicalKey::from_scancode(ki.scancode) {
             self.logical_events.push_back(LogicalEvent::Key {
