@@ -3,6 +3,7 @@
 layout(location = 0) in vec4 v_Color;
 layout(location = 1) in vec3 v_Position;
 layout(location = 2) in vec3 v_Normal;
+layout(location = 3) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 o_color;
 
@@ -11,12 +12,16 @@ layout(set = 0, binding = 0) uniform Locals {
     mat4 u_Proj;
 };
 
-const float screenGamma = 2.2; // Assume the monitor is calibrated to the sRGB color space
+layout(set = 1, binding = 0) uniform texture2D t_base_color;
+layout(set = 1, binding = 1) uniform sampler s_base_color;
+
+// Assume the monitor is calibrated to the sRGB color space
+const float screenGamma = 2.2;
 
 void main() {
-    // NOTE: this position is in view space
+    // Hard code a fixed light position, and transform it into the current view space
     vec3 light_pos = (u_View * vec4(1.0, 4.0, 3.0, 1.0)).xyz;
-    float light_power = 3.0;
+    float light_power = 5.0;
 
     vec3 normal = normalize(v_Normal);
 
@@ -30,9 +35,11 @@ void main() {
     float spec_angle = max(dot(half_dir, normal), 0.0);
     float specular = pow(spec_angle, 15.0);
 
-    vec3 colorLinear = vec3(0.02, 0.02, 0.02)
-                     + v_Color.xyz * lambertian * vec3(1.0, 1.0, 1.0) * light_power / light_distance
-                     + v_Color.xyz * specular * vec3(1.0, 1.0, 1.0) * light_power / light_distance;
+    vec3 base_color = texture(sampler2D(t_base_color, s_base_color), v_TexCoord).rgb;
+
+    vec3 colorLinear = (base_color * 0.02)
+                     + base_color * lambertian * vec3(1.0, 1.0, 1.0) * light_power / light_distance
+                     + base_color * specular * vec3(1.0, 1.0, 1.0) * light_power / light_distance;
 
     vec3 colorGammaCorrected = pow(colorLinear, vec3(1.0 / screenGamma));
 

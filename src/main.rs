@@ -28,7 +28,10 @@ async fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_resizable(false)
-        .with_inner_size(PhysicalSize { height: 600, width: 800 })
+        .with_inner_size(PhysicalSize {
+            width: 1920,
+            height: 1080,
+        })
         .with_title("wgpu-test")
         .build(&event_loop)
         .unwrap();
@@ -38,13 +41,13 @@ async fn main() {
 
     let mut renderer = Renderer::new(&window).await;
 
-    let suzanne_id = renderer.upload_model(
-        ModelData::load_gltf("./suzanne.glb")
+    let model_id = renderer.upload_model(
+        ModelData::load_gltf("./AntiqueCamera.glb")
             .await
-            .expect("Failed to upload model to GPU"),
+            .expect("Failed to load model from disk"),
     );
 
-    let mut app = App::new(suzanne_id);
+    let mut app = App::new(model_id);
 
     let mut last_update_inst = Instant::now();
     event_loop.run(move |event, _, control_flow| {

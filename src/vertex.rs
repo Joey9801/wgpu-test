@@ -7,6 +7,8 @@ pub struct Vertex {
 
     pub normal: [f32; 3],
 
+    pub texcoord: [f32; 2],
+
     /// RGBA color
     pub color: [f32; 4],
 }
@@ -28,9 +30,14 @@ impl Vertex {
                     shader_location: 1,
                 },
                 wgpu::VertexAttributeDescriptor {
-                    format: wgpu::VertexFormat::Float4,
+                    format: wgpu::VertexFormat::Float2,
                     offset: 6 * 4,
                     shader_location: 2,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    format: wgpu::VertexFormat::Float4,
+                    offset: 8 * 4,
+                    shader_location: 3,
                 },
             ],
         }

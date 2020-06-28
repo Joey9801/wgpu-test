@@ -61,6 +61,14 @@ pub struct App {
 
 impl App {
     pub fn new(model: ModelId) -> Self {
+        let mut object = AppObject {
+            model,
+            scale: 0.4,
+            pos: [0.0, 0.0, -1.0].into(),
+            angle: [1.0, 0.0, 0.0, 0.0].into(),
+        };
+        object.rotate(Deg(90.0), [1.0, 0.0, 0.0].into());
+
         Self {
             input_manager: InputManager::new(),
             main_camera: Camera {
@@ -69,12 +77,7 @@ impl App {
                 ..Camera::default()
             },
             camera_velocity: [0.0, 0.0, 0.0].into(),
-            object: AppObject {
-                model,
-                scale: 1.0,
-                pos: [0.0, 0.0, 0.0].into(),
-                angle: [1.0, 0.0, 0.0, 0.0].into(),
-            },
+            object,
         }
     }
 
