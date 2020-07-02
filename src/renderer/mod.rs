@@ -10,7 +10,7 @@ struct GpuModel {
     vertex_buff: wgpu::Buffer,
     index_buff: wgpu::Buffer,
     index_count: u32,
-    texture_bind_group: wgpu::BindGroup,
+    base_color_texture: wgpu::Texture,
 }
 
 impl GpuModel {
@@ -18,7 +18,6 @@ impl GpuModel {
         data: &ModelData,
         device: &wgpu::Device,
         queue: &mut wgpu::Queue,
-        texture_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         let vertex_buff = device.create_buffer_with_data(
             bytemuck::cast_slice(&data.vertices),
@@ -30,7 +29,7 @@ impl GpuModel {
         );
         let index_count = data.indices.len() as u32;
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        let base_color_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Model base color texture"),
             size: wgpu::Extent3d {
                 width: data.texture.width(),
@@ -43,18 +42,6 @@ impl GpuModel {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
-        });
-
-        let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            lod_min_clamp: -100.0,
-            lod_max_clamp: 100.0,
-            compare: wgpu::CompareFunction::Always,
         });
 
         // Actually filling the texture object with data requires this command buffer dance
@@ -73,7 +60,7 @@ impl GpuModel {
                 rows_per_image: data.texture.height(),
             },
             wgpu::TextureCopyView {
-                texture: &texture,
+                texture: &base_color_texture,
                 mip_level: 0,
                 array_layer: 0,
                 origin: wgpu::Origin3d::ZERO,
@@ -86,28 +73,11 @@ impl GpuModel {
         );
         queue.submit(&[encoder.finish()]);
 
-        // TODO: The GpuModel constructor probably isn't the right place to generate the bind group
-        // for a specific render stage
-        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &texture_bind_group_layout,
-            bindings: &[
-                wgpu::Binding {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture.create_default_view()),
-                },
-                wgpu::Binding {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&texture_sampler),
-                },
-            ],
-            label: Some("diffuse_bind_group"),
-        });
-
         Self {
             vertex_buff,
             index_buff,
             index_count,
-            texture_bind_group,
+            base_color_texture,
         }
     }
 }
@@ -209,9 +179,11 @@ impl Renderer {
             &data,
             &self.device,
             &mut self.queue,
-            &self.render_stage.texture_bind_group_layout,
         );
         let new_model_id = self.next_model_id;
+
+        // Create and cache any bind groups specific to this model
+        self.render_stage.add_model(&self.device, new_model_id, &new_gpu_model);
 
         self.models.insert(new_model_id, new_gpu_model);
         self.next_model_id = ModelId(self.next_model_id.0 + 1);
@@ -258,6 +230,8 @@ struct RenderStage {
     uniform_buff: wgpu::Buffer,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
+    texture_bind_groups: HashMap<ModelId, wgpu::BindGroup>,
+    texture_sampler: wgpu::Sampler,
 }
 
 impl RenderStage {
@@ -378,12 +352,45 @@ impl RenderStage {
             alpha_to_coverage_enabled: false,
         });
 
+        let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            lod_min_clamp: -100.0,
+            lod_max_clamp: 100.0,
+            compare: wgpu::CompareFunction::Always,
+        });
+
         Self {
             uniform_buff,
             uniform_bind_group,
             pipeline,
             texture_bind_group_layout,
+            texture_sampler,
+            texture_bind_groups: HashMap::new(),
         }
+    }
+
+    pub fn add_model(&mut self, device: &wgpu::Device, model_id: ModelId, model: &GpuModel) {
+        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.texture_bind_group_layout,
+            bindings: &[
+                wgpu::Binding {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&model.base_color_texture.create_default_view()),
+                },
+                wgpu::Binding {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.texture_sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        });
+
+        self.texture_bind_groups.insert(model_id, texture_bind_group);
     }
 
     pub fn draw_frame(
@@ -416,6 +423,10 @@ impl RenderStage {
                 .get(&model.model_id)
                 .expect("Frame packet references model with unknown id");
 
+            let texture_bind_group = self.texture_bind_groups
+                .get(&model.model_id)
+                .expect("Frame packet references model with no texture information");
+
             let instance_data_buff = renderer.device.create_buffer_with_data(
                 bytemuck::cast_slice(&model.instances[..]),
                 wgpu::BufferUsage::VERTEX,
@@ -442,7 +453,7 @@ impl RenderStage {
 
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            rpass.set_bind_group(1, &model_data.texture_bind_group, &[]);
+            rpass.set_bind_group(1, &texture_bind_group, &[]);
 
             rpass.set_vertex_buffer(0, &model_data.vertex_buff, 0, 0);
             rpass.set_vertex_buffer(1, &instance_data_buff, 0, 0);

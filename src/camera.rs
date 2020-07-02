@@ -22,7 +22,7 @@ impl Default for Camera {
             location: Point3::new(0.0, 0.0, 0.0),
             direction: Vector3::new(1.0, 0.0, 0.0),
             near_clip: 0.1,
-            far_clip: 50.0,
+            far_clip: 1000.0,
             vertical_fov: Deg(90.0).into(),
         }
     }
