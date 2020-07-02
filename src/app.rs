@@ -5,8 +5,8 @@ use cgmath::{Angle, Deg, InnerSpace, Matrix4, Point3, Quaternion, Rad, SquareMat
 use crate::camera::Camera;
 use crate::input_manager::{InputManager, KeyState, LogicalEvent, LogicalKey};
 use crate::renderer::{
-    frame_packet::{FramePacket, FramePacketModel, InstanceData},
-    ModelId,
+    frame_packet::{FramePacket, FramePacketModel, InstanceData, FramePacketSprites, SpriteInstanceData},
+    ModelId, AtlasId,
 };
 
 struct AppObject {
@@ -57,10 +57,12 @@ pub struct App {
     camera_velocity: Vector3<f32>,
 
     object: AppObject,
+
+    ui_atlas: AtlasId,
 }
 
 impl App {
-    pub fn new(model: ModelId) -> Self {
+    pub fn new(model: ModelId, ui_atlas: AtlasId) -> Self {
         let mut object = AppObject {
             model,
             scale: 0.4,
@@ -78,6 +80,7 @@ impl App {
             },
             camera_velocity: [0.0, 0.0, 0.0].into(),
             object,
+            ui_atlas,
         }
     }
 
@@ -161,6 +164,17 @@ impl App {
                     normal_matrix: self.object.normal_matrix(view),
                 }],
             }],
+            overlay_sprites: vec![FramePacketSprites {
+                atlas_id: self.ui_atlas,
+                sprites: vec![
+                    SpriteInstanceData {
+                        screen_pos: [0.09, 0.16].into(),
+                        screen_size: [-0.09, -0.16].into(),
+                        atlas_pos: [0.0, 0.0].into(),
+                        atlas_size: [1.0, 1.0].into(),
+                    }
+                ]
+            }]
         }
     }
 }

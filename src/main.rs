@@ -8,6 +8,8 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
+use tokio::fs::File;
+use tokio::prelude::*;
 
 mod app;
 mod camera;
@@ -47,7 +49,21 @@ async fn main() {
             .expect("Failed to load model from disk"),
     );
 
-    let mut app = App::new(model_id);
+    let atlas_id;
+    {
+        let mut atlas_file = File::open("./atlas.png")
+            .await
+            .expect("Failed to open atlas file");
+        let mut atlas_data = Vec::new();
+        atlas_file.read_to_end(&mut atlas_data)
+            .await
+            .expect("Failed to read atlas file");
+        let atlas_data = image::load_from_memory(&atlas_data)
+            .expect("Failed to parse atlas file");
+        atlas_id = renderer.upload_atlas(atlas_data.to_rgba());
+    }
+
+    let mut app = App::new(model_id, atlas_id);
 
     let mut last_update_inst = Instant::now();
     event_loop.run(move |event, _, control_flow| {

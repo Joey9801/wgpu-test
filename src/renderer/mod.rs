@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use crate::{model_data::ModelData, shader_cache::ShaderCache, vertex::Vertex};
 
 pub mod frame_packet;
+mod sprite_overlay;
+
 use frame_packet::{FramePacket, InstanceData};
+use sprite_overlay::SpriteOverlayRenderStage;
 
 /// Represents a handle to a single model's data on the GPU
 struct GpuModel {
@@ -86,6 +89,69 @@ impl GpuModel {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModelId(usize);
 
+/// Represents a single sprite atlas on the GPU
+pub struct GpuAtlas {
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
+}
+
+impl GpuAtlas {
+    fn new(data: image::RgbaImage, device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Model base color texture"),
+            size: wgpu::Extent3d {
+                width: data.width(),
+                height: data.height(),
+                depth: 1,
+            },
+            array_layer_count: 1,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+        });
+        let view = texture.create_default_view();
+
+        let texture_buff = device.create_buffer_with_data(
+            data.as_flat_samples().as_slice(),
+            wgpu::BufferUsage::COPY_SRC,
+        );
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Texture atlas upload commands"),
+        });
+        encoder.copy_buffer_to_texture(
+            wgpu::BufferCopyView {
+                buffer: &texture_buff,
+                offset: 0,
+                bytes_per_row: 4 * data.width(),
+                rows_per_image: data.height(),
+            },
+            wgpu::TextureCopyView {
+                texture: &texture,
+                mip_level: 0,
+                array_layer: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            wgpu::Extent3d {
+                width: data.width(),
+                height: data.height(),
+                depth: 1,
+            },
+        );
+        queue.submit(&[encoder.finish()]);
+
+        Self {
+            texture,
+            view,
+        }
+    }
+}
+
+/// Exposed as a handle to a GpuAtlas
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AtlasId(usize);
+
 #[allow(unused)]
 pub struct Renderer {
     size: winit::dpi::PhysicalSize<u32>,
@@ -99,7 +165,11 @@ pub struct Renderer {
     next_model_id: ModelId,
     models: HashMap<ModelId, GpuModel>,
 
-    render_stage: RenderStage,
+    next_atlas_id: AtlasId,
+    atlases: HashMap<AtlasId, GpuAtlas>,
+
+    forward_render_stage: ForwardRenderStage,
+    sprite_overlay_render_stage: SpriteOverlayRenderStage,
 }
 
 impl Renderer {
@@ -154,7 +224,8 @@ impl Renderer {
                 | wgpu::TextureUsage::COPY_SRC,
         });
 
-        let render_stage = RenderStage::new(&device).await;
+        let forward_render_stage = ForwardRenderStage::new(&device).await;
+        let sprite_overlay_render_stage = SpriteOverlayRenderStage::new(&device).await;
 
         Self {
             size,
@@ -166,7 +237,10 @@ impl Renderer {
             depth_texture,
             next_model_id: ModelId(0),
             models: HashMap::new(),
-            render_stage,
+            next_atlas_id: AtlasId(0),
+            atlases: HashMap::new(),
+            forward_render_stage,
+            sprite_overlay_render_stage,
         }
     }
 
@@ -183,12 +257,28 @@ impl Renderer {
         let new_model_id = self.next_model_id;
 
         // Create and cache any bind groups specific to this model
-        self.render_stage.add_model(&self.device, new_model_id, &new_gpu_model);
+        self.forward_render_stage.add_model(&self.device, new_model_id, &new_gpu_model);
 
         self.models.insert(new_model_id, new_gpu_model);
         self.next_model_id = ModelId(self.next_model_id.0 + 1);
 
         new_model_id
+    }
+
+    pub fn upload_atlas(&mut self, data: image::RgbaImage) -> AtlasId {
+        let new_gpu_atlas = GpuAtlas::new(
+            data,
+            &self.device,
+            &mut self.queue,
+        );
+        let new_atlas_id = self.next_atlas_id;
+
+        self.sprite_overlay_render_stage.add_atlas(&self.device, new_atlas_id, &new_gpu_atlas);
+
+        self.atlases.insert(new_atlas_id, new_gpu_atlas);
+        self.next_atlas_id = AtlasId(self.next_atlas_id.0 + 1);
+
+        new_atlas_id
     }
 
     pub fn draw_frame(&mut self, frame_packet: &FramePacket) {
@@ -203,12 +293,19 @@ impl Renderer {
                 label: Some("Per frame encoder"),
             });
 
-        self.render_stage.draw_frame(
+        self.forward_render_stage.draw_frame(
             self,
             frame_packet,
             &mut encoder,
             &frame.view,
             &self.depth_texture.create_default_view(),
+        );
+
+        self.sprite_overlay_render_stage.draw_frame(
+            self,
+            frame_packet,
+            &mut encoder,
+            &frame.view
         );
 
         self.queue.submit(&[encoder.finish()]);
@@ -217,15 +314,16 @@ impl Renderer {
 
 #[derive(Clone, Copy)]
 #[allow(unused)]
-struct UniformData {
+struct ForwardUniformData {
     view: cgmath::Matrix4<f32>,
     proj: cgmath::Matrix4<f32>,
 }
 
-unsafe impl bytemuck::Pod for UniformData {}
-unsafe impl bytemuck::Zeroable for UniformData {}
+unsafe impl bytemuck::Pod for ForwardUniformData {}
+unsafe impl bytemuck::Zeroable for ForwardUniformData {}
 
-struct RenderStage {
+/// Represents a render stage that renders instanced 3d geometry to a texture view
+struct ForwardRenderStage {
     uniform_bind_group: wgpu::BindGroup,
     uniform_buff: wgpu::Buffer,
     texture_bind_group_layout: wgpu::BindGroupLayout,
@@ -234,7 +332,7 @@ struct RenderStage {
     texture_sampler: wgpu::Sampler,
 }
 
-impl RenderStage {
+impl ForwardRenderStage {
     pub async fn new(device: &wgpu::Device) -> Self {
         let mut shader_cache = ShaderCache::new();
         let vs_spirv = shader_cache
@@ -254,7 +352,7 @@ impl RenderStage {
         let fs_module = device.create_shader_module(&fs_spirv);
 
         let uniform_buff = device.create_buffer(&wgpu::BufferDescriptor {
-            size: std::mem::size_of::<UniformData>() as wgpu::BufferAddress,
+            size: std::mem::size_of::<ForwardUniformData>() as wgpu::BufferAddress,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             label: Some("Render stage uniform buffer"),
         });
@@ -275,7 +373,7 @@ impl RenderStage {
                 binding: 0,
                 resource: wgpu::BindingResource::Buffer {
                     buffer: &uniform_buff,
-                    range: 0..std::mem::size_of::<UniformData>() as wgpu::BufferAddress,
+                    range: 0..std::mem::size_of::<ForwardUniformData>() as wgpu::BufferAddress,
                 },
             }],
             label: Some("Render stage uniform bind group"),
@@ -402,7 +500,7 @@ impl RenderStage {
         depth_output: &wgpu::TextureView,
     ) {
         let uniform_staging = renderer.device.create_buffer_with_data(
-            bytemuck::cast_slice(&[UniformData {
+            bytemuck::cast_slice(&[ForwardUniformData {
                 view: frame_packet.view,
                 proj: frame_packet.proj,
             }]),
@@ -414,7 +512,7 @@ impl RenderStage {
             0,
             &self.uniform_buff,
             0,
-            std::mem::size_of::<UniformData>() as wgpu::BufferAddress,
+            std::mem::size_of::<ForwardUniformData>() as wgpu::BufferAddress,
         );
 
         for model in &frame_packet.models {
